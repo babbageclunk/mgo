@@ -1603,6 +1603,68 @@ func (s *S) TestTooManyItemsLimitBug(c *C) {
 	c.Assert(iters, Equals, limit)
 }
 
+func tryApplyUpsert(c *C, session *mgo.Session, id int) {
+	const numTasks = 100
+	errors := make(chan error, numTasks)
+	change := mgo.Change{
+		Update: M{"car": "seat"},
+		Upsert: true,
+	}
+	for i := 0; i < numTasks; i++ {
+		go func() {
+			session := session.Copy()
+			defer session.Close()
+			coll := session.DB("mydb").C("mycoll")
+			var doc M
+			_, err := coll.FindId(id).Apply(change, &doc)
+			errors <- err
+		}()
+	}
+	for i := 0; i < numTasks; i++ {
+		c.Check(<-errors, IsNil)
+	}
+}
+
+func (s *S) TestQueryApplyRetriesUpserts(c *C) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(runtime.NumCPU()))
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+	mgo.SetDebug(false)
+	for i := 0; i < 1000; i++ {
+		tryApplyUpsert(c, session, i)
+	}
+}
+
+func tryUpsert(c *C, session *mgo.Session, id int) {
+	const numTasks = 100
+	errors := make(chan error, numTasks)
+	for i := 0; i < numTasks; i++ {
+		go func() {
+			session := session.Copy()
+			defer session.Close()
+			_, err := session.DB("mydb").C("mycoll").Upsert(
+				M{"_id": id}, M{"car": "seat"},
+			)
+			errors <- err
+		}()
+	}
+	for i := 0; i < numTasks; i++ {
+		c.Check(<-errors, IsNil)
+	}
+}
+
+func (s *S) TestCollectionUpsertRetriesDuplicateKeyErrors(c *C) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(runtime.NumCPU()))
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+	mgo.SetDebug(false)
+	for i := 0; i < 1000; i++ {
+		tryUpsert(c, session, i)
+	}
+}
+
 func (s *S) TestBatchSizeZeroGetMore(c *C) {
 	if *fast {
 		c.Skip("-fast")
