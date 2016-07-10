@@ -10,6 +10,7 @@ import (
 	. "gopkg.in/check.v1"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mgo.v2/dbtest"
 	"gopkg.in/mgo.v2/txn"
 )
 
@@ -18,8 +19,8 @@ func TestAll(t *testing.T) {
 }
 
 type S struct {
-	MgoSuite
-
+	server   dbtest.DBServer
+	session  *mgo.Session
 	db       *mgo.Database
 	tc, sc   *mgo.Collection
 	accounts *mgo.Collection
@@ -30,12 +31,22 @@ var _ = Suite(&S{})
 
 type M map[string]interface{}
 
+func (s *S) SetUpSuite(c *C) {
+	s.server.SetPath(c.MkDir())
+}
+
+func (s *S) TearDownSuite(c *C) {
+	s.server.Stop()
+}
+
 func (s *S) SetUpTest(c *C) {
+	s.server.Wipe()
+
 	txn.SetChaos(txn.Chaos{})
 	txn.SetLogger(c)
 	txn.SetDebug(true)
-	s.MgoSuite.SetUpTest(c)
 
+	s.session = s.server.Session()
 	s.db = s.session.DB("test")
 	s.tc = s.db.C("tc")
 	s.sc = s.db.C("tc.stash")
@@ -46,6 +57,7 @@ func (s *S) SetUpTest(c *C) {
 func (s *S) TearDownTest(c *C) {
 	txn.SetLogger(nil)
 	txn.SetDebug(false)
+	s.session.Close()
 }
 
 type Account struct {
