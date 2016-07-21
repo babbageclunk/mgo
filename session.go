@@ -41,6 +41,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/juju/loggo"
 	"gopkg.in/mgo.v2/bson"
 )
 
@@ -144,6 +145,9 @@ type Iter struct {
 var (
 	ErrNotFound = errors.New("not found")
 	ErrCursor   = errors.New("invalid cursor")
+
+	logPatchedOnce sync.Once
+	logger         = loggo.GetLogger("mgo")
 )
 
 const (
@@ -416,6 +420,16 @@ func (addr *ServerAddr) TCPAddr() *net.TCPAddr {
 
 // DialWithInfo establishes a new session to the cluster identified by info.
 func DialWithInfo(info *DialInfo) (*Session, error) {
+	// This is using loggo because that can be done here in a
+	// localised patch, while using mgo's logging would need a change
+	// in Juju to call mgo.SetLogger. It's in this short-lived patch
+	// as a stop-gap because it's proving difficult to tell if the
+	// patch is applied in a running system. If you see it in
+	// committed code then something has gone very awry - please
+	// complain loudly! (babbageclunk)
+	logPatchedOnce.Do(func() {
+		logger.Debugf("duplicate key error patch applied")
+	})
 	addrs := make([]string, len(info.Addrs))
 	for i, addr := range info.Addrs {
 		p := strings.LastIndexAny(addr, "]:")
