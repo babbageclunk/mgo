@@ -4219,22 +4219,22 @@ func (q *Query) Apply(change Change, result interface{}) (info *ChangeInfo, err 
 	session.SetMode(Strong, false)
 
 	var doc valueResult
-	for i := 0; i < maxUpsertRetries; i++ {
+	for attempt := 0; ; attempt++ {
 		err = session.DB(dbname).Run(&cmd, &doc)
-
-		if err == nil {
-			break
+		if err != nil {
+			if qerr, ok := err.(*QueryError); ok && qerr.Message == "No matching object found" {
+				return nil, ErrNotFound
+			}
+			if change.Upsert && IsDup(err) && attempt < maxUpsertRetries {
+				// Retry duplicate key errors on upserts.
+				// https://docs.mongodb.com/v3.2/reference/method/db.collection.update/#use-unique-indexes
+				continue
+			}
+			return nil, err
 		}
-		if change.Upsert && IsDup(err) {
-			// Retry duplicate key errors on upserts.
-			// https://docs.mongodb.com/v3.2/reference/method/db.collection.update/#use-unique-indexes
-			continue
-		}
-		if qerr, ok := err.(*QueryError); ok && qerr.Message == "No matching object found" {
-			return nil, ErrNotFound
-		}
-		return nil, err
+		break // No error, so don't retry.
 	}
+
 	if doc.LastError.N == 0 {
 		return nil, ErrNotFound
 	}
